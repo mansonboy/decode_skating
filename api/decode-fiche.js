@@ -9,6 +9,10 @@
 // ⚠️ Change ceci pour l'URL exacte de ton site (sans slash final)
 const ALLOWED_ORIGIN = 'https://frenchranking.daurelthomas.fr';
 
+// Code d'accès partagé (à définir dans les variables d'environnement Vercel sous ACCESS_CODE).
+// Si la variable n'est pas définie, la vérification est ignorée (utile en dev local).
+const ACCESS_CODE = process.env.ACCESS_CODE;
+
 // Rate limit très simple en mémoire : max 15 requêtes / IP / heure.
 // Limite : ça se réinitialise si la fonction "redémarre" (cold start) et ne
 // tient pas compte du multi-région. Suffisant pour démarrer ; si le site
@@ -71,7 +75,20 @@ module.exports = async (req, res) => {
   }
 
   try {
-    const { imageBase64, mediaType } = req.body || {};
+    const { accessCode, validateOnly, imageBase64, mediaType } = req.body || {};
+
+    // Vérification du code d'accès (si configuré)
+    if (ACCESS_CODE && accessCode !== ACCESS_CODE) {
+      res.status(401).json({ error: "Code d'accès incorrect." });
+      return;
+    }
+
+    // Mode "juste vérifier le code", utilisé par l'écran de déverrouillage.
+    // Ne coûte rien : on répond avant d'appeler l'API Anthropic.
+    if (validateOnly) {
+      res.status(200).json({ ok: true });
+      return;
+    }
 
     if (!imageBase64 || !mediaType) {
       res.status(400).json({ error: 'Image manquante.' });
@@ -115,7 +132,9 @@ module.exports = async (req, res) => {
     if (!response.ok) {
       const errText = await response.text();
       console.error('Erreur API Anthropic :', errText);
-      res.status(502).json({ error: "Erreur lors de l'analyse de l'image." });
+      // 🔧 DEBUG TEMPORAIRE : on renvoie le détail de l'erreur au client pour diagnostiquer.
+      // Une fois le problème résolu, retire le champ "detail" pour ne plus exposer ces infos.
+      res.status(502).json({ error: "Erreur lors de l'analyse de l'image.", detail: errText });
       return;
     }
 
